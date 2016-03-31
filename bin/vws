@@ -1,0 +1,76 @@
+#!/usr/bin/env node
+
+var program = require('commander')
+var path = require('path')
+var fs = require('fs')
+var prompt = require('prompt-for-patched')
+var download = require('download-git-repo')
+var chalk = require('chalk')
+var rm = require('rimraf').sync
+var Khaos = require('khaos-patched')
+
+program
+    .version(require('../package').version)
+
+program
+    .usage('<command> [project-name]')
+    .command('init')
+    .description('create a new project base on vue and webpack')
+    .action(function(){
+        var projectName = program.args[0]
+        var inCurrent = !projectName||projectName === '.'
+        var schemaProjectName = inCurrent?path.relative('../', process.cwd()): projectName
+        var to = path.resolve(projectName||'.')
+        var templateRepo = '2eron/vue-scaffold-template'
+        if(fs.existsSync(to)){
+            prompt({
+                ok: {
+                    type: 'boolean',
+                    default: true,
+                    label: inCurrent?'Generate project in current directory?':'Target directory exists. Continue?'
+                }
+            }, function(err, answers){
+                if(err) throw err
+                if(answers.ok){
+                    start()
+                }
+            })
+        }else{
+            start()
+        }
+
+        function start(){
+            var tmp = '/tmp/vue-template'
+            console.log(chalk.gray('Template downloading...'))
+            download(templateRepo, tmp, {clone: false}, function(err){
+                console.log(chalk.green('Template download end.'))
+                generate(tmp, to, function(err){
+                    if(err) throw err
+                    console.log(chalk.green('Project generated successfully!'))
+                    rm(tmp)
+                })
+            })
+        }
+
+        function generate(src, dest, fn){
+            var template = path.join(src, 'template')
+            var metaFile = path.join(src, 'meta.json')
+            var metaData = JSON.parse(fs.readFileSync(metaFile, 'utf-8'))
+            metaData.schema.name.default = schemaProjectName
+            var khaos = new Khaos(template).schema(metaData.schema)
+            khaos.generate(dest, fn)
+        }
+    })
+
+/**
+ * help
+ */
+program.on('--help', function(){
+    console.log('  Examples:')
+    console.log('')
+    console.log('    $ vps init project-name')
+    console.log('')
+})
+
+program.parse(process.argv)
+if(program.args.length<1) return program.help()

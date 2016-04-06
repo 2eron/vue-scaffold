@@ -8,7 +8,7 @@ $ npm install -g vue-scaffold
 
 ### Usage
 ```
-$ vws init project-name
+$ vs init project-name
 $ cd project-name
 $ npm install
 $ npm run dev

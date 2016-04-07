@@ -7,7 +7,11 @@ var inquirer = require('inquirer')
 var download = require('download-git-repo')
 var chalk = require('chalk')
 var rm = require('rimraf').sync
-var Khaos = require('khaos-patched')
+var metadata = require('read-metadata')
+var render = require('consolidate').handlebars.render
+var Metalsmith = require('metalsmith')
+var async = require('async')
+var ora = require('ora')
 
 program
     .version(require('../package').version)
@@ -36,24 +40,71 @@ program
 
         function start(){
             var tmp = '/tmp/vue-template'
-            console.log(chalk.gray('Template downloading...'))
+            var spinner = ora({
+                text: 'Template downloading...',
+                spinner: 'arrow'
+            })
+            spinner.start()
+            // console.log(chalk.gray('Template downloading...'))
             download(templateRepo, tmp, {clone: false}, function(err){
-                console.log(chalk.green('Template download end.'))
+                // console.log(chalk.green('\nTemplate download end.'))
+                spinner.stop()
                 generate(tmp, to, function(err){
                     if(err) throw err
                     console.log(chalk.green('Project generated successfully!'))
+                    // 删除临时文件
                     rm(tmp)
                 })
             })
         }
-
+        /**
+         * generate scaffold
+         * @param  {String}   src
+         * @param  {String}   dest
+         * @param  {Function} fn
+         */
         function generate(src, dest, fn){
             var template = path.join(src, 'template')
             var metaFile = path.join(src, 'meta.json')
-            var metaData = JSON.parse(fs.readFileSync(metaFile, 'utf-8'))
+            // var metaData = JSON.parse(fs.readFileSync(metaFile, 'utf-8'))
+            var metaData = metadata.sync(metaFile)
+            var promptMapping = {
+                string: 'input',
+                boolean: 'confirm'
+            }
             metaData.schema.name.default = schemaProjectName
-            var khaos = new Khaos(template).schema(metaData.schema)
-            khaos.generate(dest, fn)
+
+            Metalsmith(template)
+                .use(function(files, metalsmith, callback){
+                    var prompts = Object.keys(metaData.schema)
+                    var msMetadata = metalsmith.metadata()
+                    async.eachSeries(prompts, function(key, callback){
+                        var prompt = metaData.schema[key]
+                        inquirer.prompt([{
+                            type: promptMapping[prompt.type],
+                            name: key,
+                            message: prompt.label||key,
+                            default: prompt.default
+                        }], function(answers){
+                            msMetadata[key] = answers[key]
+                            callback()
+                        })
+                    }, callback)
+                })
+                .use(function(files, metalsmith, callback){
+                    var pkgName = 'package.json'
+                    var pkgStr = files[pkgName].contents.toString()
+                    render(pkgStr, metalsmith.metadata(), function(err, res){
+                        if(err){
+                            return callback(err)
+                        }
+                        files[pkgName].contents = new Buffer(res)
+                        callback()
+                    })
+                })
+                .source('.')
+                .destination(dest)
+                .build(fn)
         }
     })
 
